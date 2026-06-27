@@ -56,6 +56,7 @@ export const defaultPlugins = [
   'dev.perfetto.CpuFreq',
   'dev.perfetto.CpuidleTimeInState',
   'dev.perfetto.CpuProfile',
+  'dev.perfetto.SmartContract',
   'dev.perfetto.CriticalPath',
   'dev.perfetto.DataExplorer',
   'dev.perfetto.DebugTracks',
