@@ -14,6 +14,8 @@ import type {PerfettoPlugin} from '../../public/plugin';
 import {NUM, STR_NULL} from '../../trace_processor/query_result';
 import {renderGasChart} from './gas_chart';
 import {renderAdditionalGasAnalysis} from './gas_analysis';
+import {renderMoneyFlow} from './money_flow';
+
 
 const CATEGORY_COLOURS: Record<string, string> = {
   'access_control': '#9B59B6',
@@ -41,9 +43,16 @@ interface SliceRow {
   call_type: string | null;
   value: string | null;
   depth: number;
+  call_index: number;
+  from_address: string | null;
+  to_address: string | null;
+  token_symbol: string | null;
+  token_contract: string | null;
+  transfer_amount: string | null;
+  value_eth: string | null;
+  has_transfer_metadata: number;
+  has_native_value: number;
 }
-
-
 
 
 export default class SmartContractPlugin implements PerfettoPlugin {
@@ -303,10 +312,26 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       },
     });
 
+    // ── Money Flow panel ─────────────────────────────────────────────────────
+    ctx.sidePanel.registerTab({
+      uri: 'dev.perfetto.SmartContract#MoneyFlow',
+      title: 'Smart Contract Money Flow',
+      icon: 'account_tree',
+      render: () => renderMoneyFlow(slices),
+    });
+
     ctx.commands.registerCommand({
       id: 'dev.perfetto.SmartContract#ShowGasGraphPanel',
       name: 'Smart Contract: Show Gas Graph Panel',
       callback: () => ctx.sidePanel.showTab('dev.perfetto.SmartContract#GasGraph'),
+    });
+
+
+    ctx.commands.registerCommand({
+      id: 'dev.perfetto.SmartContract#ShowMoneyFlowPanel',
+      name: 'Smart Contract: Show Money Flow Panel',
+      callback: () =>
+        ctx.sidePanel.showTab('dev.perfetto.SmartContract#MoneyFlow'),
     });
 
     ctx.commands.registerCommand({
@@ -356,100 +381,191 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       },
     });
   }
+private async querySlices(ctx: Trace): Promise<SliceRow[]> {
+  try {
+    const result = await ctx.engine.query(`
+      SELECT
+        s.id AS id,
+        s.name AS name,
+        cat_arg.string_value AS visual_category,
 
-  private async querySlices(ctx: Trace): Promise<SliceRow[]> {
-    try {
-      const result = await ctx.engine.query(`
-        SELECT
-          s.id AS id,
-          s.name AS name,
-          cat_arg.string_value AS visual_category,
+        COALESCE(
+          CAST(gas_used_arg.int_value AS INT),
+          CAST(gas_used_arg.string_value AS INT),
+          0
+        ) AS gas_used,
 
-          COALESCE(
-            CAST(gas_used_arg.int_value AS INT),
-            CAST(gas_used_arg.string_value AS INT),
-            0
-          ) AS gas_used,
+        COALESCE(
+          CAST(gas_assigned_decimal_arg.int_value AS INT),
+          CAST(gas_assigned_decimal_arg.string_value AS INT),
+          CAST(gas_decimal_arg.int_value AS INT),
+          CAST(gas_decimal_arg.string_value AS INT),
+          CAST(gas_arg.int_value AS INT),
+          CAST(gas_arg.string_value AS INT),
+          0
+        ) AS gas_assigned,
 
-          COALESCE(
-            CAST(gas_assigned_decimal_arg.int_value AS INT),
-            CAST(gas_assigned_decimal_arg.string_value AS INT),
-            CAST(gas_decimal_arg.int_value AS INT),
-            CAST(gas_decimal_arg.string_value AS INT),
-            CAST(gas_arg.int_value AS INT),
-            CAST(gas_arg.string_value AS INT),
-            0
-          ) AS gas_assigned,
+        kind_arg.string_value AS call_type,
+        value_arg.string_value AS value,
+        s.depth AS depth,
 
-          kind_arg.string_value AS call_type,
-          value_arg.string_value AS value,
-          s.depth AS depth
+        COALESCE(
+          CAST(call_index_arg.int_value AS INT),
+          CAST(call_index_arg.string_value AS INT),
+          0
+        ) AS call_index,
 
-        FROM slice s
+        from_arg.string_value AS from_address,
+        to_arg.string_value AS to_address,
+        token_symbol_arg.string_value AS token_symbol,
+        token_contract_arg.string_value AS token_contract,
 
-        LEFT JOIN args cat_arg
-          ON cat_arg.arg_set_id = s.arg_set_id
-         AND cat_arg.key = 'args.visual_category'
+        COALESCE(
+          transfer_amount_arg.string_value,
+          CAST(transfer_amount_arg.real_value AS TEXT),
+          CAST(transfer_amount_arg.int_value AS TEXT)
+        ) AS transfer_amount,
 
-        LEFT JOIN args gas_used_arg
-          ON gas_used_arg.arg_set_id = s.arg_set_id
-         AND gas_used_arg.key = 'args.gas_used_decimal'
+        COALESCE(
+          value_eth_arg.string_value,
+          CAST(value_eth_arg.real_value AS TEXT),
+          CAST(value_eth_arg.int_value AS TEXT)
+        ) AS value_eth,
 
-        LEFT JOIN args gas_assigned_decimal_arg
-          ON gas_assigned_decimal_arg.arg_set_id = s.arg_set_id
-         AND gas_assigned_decimal_arg.key = 'args.gas_assigned_decimal'
+        COALESCE(
+          CAST(has_transfer_arg.int_value AS INT),
+          CAST(has_transfer_arg.string_value AS INT),
+          0
+        ) AS has_transfer_metadata,
 
-        LEFT JOIN args gas_decimal_arg
-          ON gas_decimal_arg.arg_set_id = s.arg_set_id
-         AND gas_decimal_arg.key = 'args.gas_decimal'
+        COALESCE(
+          CAST(has_native_arg.int_value AS INT),
+          CAST(has_native_arg.string_value AS INT),
+          0
+        ) AS has_native_value
 
-        LEFT JOIN args gas_arg
-          ON gas_arg.arg_set_id = s.arg_set_id
-         AND gas_arg.key = 'args.gas'
+      FROM slice s
 
-        LEFT JOIN args kind_arg
-          ON kind_arg.arg_set_id = s.arg_set_id
-         AND kind_arg.key = 'args.kind'
+      LEFT JOIN args cat_arg
+        ON cat_arg.arg_set_id = s.arg_set_id
+       AND cat_arg.key = 'args.visual_category'
 
-        LEFT JOIN args value_arg
-          ON value_arg.arg_set_id = s.arg_set_id
-         AND value_arg.key = 'args.value'
+      LEFT JOIN args gas_used_arg
+        ON gas_used_arg.arg_set_id = s.arg_set_id
+       AND gas_used_arg.key = 'args.gas_used_decimal'
 
-         WHERE
-          gas_used_arg.int_value IS NOT NULL
-          OR gas_used_arg.string_value IS NOT NULL
-        ORDER BY s.ts
-      `);
+      LEFT JOIN args gas_assigned_decimal_arg
+        ON gas_assigned_decimal_arg.arg_set_id = s.arg_set_id
+       AND gas_assigned_decimal_arg.key = 'args.gas_assigned_decimal'
 
-      const rows: SliceRow[] = [];
-      const iter = result.iter({
-        id: NUM,
-        name: STR_NULL,
-        visual_category: STR_NULL,
-        gas_used: NUM,
-        gas_assigned: NUM,
-        call_type: STR_NULL,
-        value: STR_NULL,
-        depth: NUM,
+      LEFT JOIN args gas_decimal_arg
+        ON gas_decimal_arg.arg_set_id = s.arg_set_id
+       AND gas_decimal_arg.key = 'args.gas_decimal'
+
+      LEFT JOIN args gas_arg
+        ON gas_arg.arg_set_id = s.arg_set_id
+       AND gas_arg.key = 'args.gas'
+
+      LEFT JOIN args kind_arg
+        ON kind_arg.arg_set_id = s.arg_set_id
+       AND kind_arg.key = 'args.kind'
+
+      LEFT JOIN args value_arg
+        ON value_arg.arg_set_id = s.arg_set_id
+       AND value_arg.key = 'args.value'
+
+      LEFT JOIN args call_index_arg
+        ON call_index_arg.arg_set_id = s.arg_set_id
+       AND call_index_arg.key = 'args.call_index'
+
+      LEFT JOIN args from_arg
+        ON from_arg.arg_set_id = s.arg_set_id
+       AND from_arg.key = 'args.from'
+
+      LEFT JOIN args to_arg
+        ON to_arg.arg_set_id = s.arg_set_id
+       AND to_arg.key = 'args.to'
+
+      LEFT JOIN args token_symbol_arg
+        ON token_symbol_arg.arg_set_id = s.arg_set_id
+       AND token_symbol_arg.key = 'args.token_symbol'
+
+      LEFT JOIN args token_contract_arg
+        ON token_contract_arg.arg_set_id = s.arg_set_id
+       AND token_contract_arg.key = 'args.token_contract'
+
+      LEFT JOIN args transfer_amount_arg
+        ON transfer_amount_arg.arg_set_id = s.arg_set_id
+       AND transfer_amount_arg.key =
+         'args.transfer_amount_normalized'
+
+      LEFT JOIN args value_eth_arg
+        ON value_eth_arg.arg_set_id = s.arg_set_id
+       AND value_eth_arg.key = 'args.value_eth'
+
+      LEFT JOIN args has_transfer_arg
+        ON has_transfer_arg.arg_set_id = s.arg_set_id
+       AND has_transfer_arg.key = 'args.has_transfer_metadata'
+
+      LEFT JOIN args has_native_arg
+        ON has_native_arg.arg_set_id = s.arg_set_id
+       AND has_native_arg.key = 'args.has_native_value'
+
+      WHERE
+        gas_used_arg.int_value IS NOT NULL
+        OR gas_used_arg.string_value IS NOT NULL
+
+      ORDER BY s.ts
+    `);
+
+    const rows: SliceRow[] = [];
+
+    const iter = result.iter({
+      id: NUM,
+      name: STR_NULL,
+      visual_category: STR_NULL,
+      gas_used: NUM,
+      gas_assigned: NUM,
+      call_type: STR_NULL,
+      value: STR_NULL,
+      depth: NUM,
+      call_index: NUM,
+      from_address: STR_NULL,
+      to_address: STR_NULL,
+      token_symbol: STR_NULL,
+      token_contract: STR_NULL,
+      transfer_amount: STR_NULL,
+      value_eth: STR_NULL,
+      has_transfer_metadata: NUM,
+      has_native_value: NUM,
+    });
+
+    for (; iter.valid(); iter.next()) {
+      rows.push({
+        id: iter.id,
+        name: iter.name,
+        visual_category: iter.visual_category,
+        gas_used: iter.gas_used,
+        gas_assigned: iter.gas_assigned,
+        call_type: iter.call_type,
+        value: iter.value,
+        depth: iter.depth,
+        call_index: iter.call_index,
+        from_address: iter.from_address,
+        to_address: iter.to_address,
+        token_symbol: iter.token_symbol,
+        token_contract: iter.token_contract,
+        transfer_amount: iter.transfer_amount,
+        value_eth: iter.value_eth,
+        has_transfer_metadata: iter.has_transfer_metadata,
+        has_native_value: iter.has_native_value,
       });
-
-      for (; iter.valid(); iter.next()) {
-        rows.push({
-          id: iter.id,
-          name: iter.name,
-          visual_category: iter.visual_category,
-          gas_used: iter.gas_used,
-          gas_assigned: iter.gas_assigned,
-          call_type: iter.call_type,
-          value: iter.value,
-          depth: iter.depth,
-        });
-      }
-
-      return rows;
-    } catch (e) {
-      console.warn('[SmartContract] Could not query slices:', e);
-      return [];
     }
+
+    return rows;
+  } catch (e) {
+    console.warn('[SmartContract] Could not query slices:', e);
+    return [];
   }
+}
 }
