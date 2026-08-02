@@ -411,7 +411,9 @@ export default class SmartContractPlugin implements PerfettoPlugin {
           ON value_arg.arg_set_id = s.arg_set_id
          AND value_arg.key = 'args.value'
 
-        WHERE cat_arg.string_value IS NOT NULL
+         WHERE
+          gas_used_arg.int_value IS NOT NULL
+          OR gas_used_arg.string_value IS NOT NULL
         ORDER BY s.ts
       `);
 
