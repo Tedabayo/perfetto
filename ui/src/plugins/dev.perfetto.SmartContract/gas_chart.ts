@@ -151,22 +151,35 @@ export function renderGasChart(rows: readonly GasChartRow[]) {
             const isRoot = index === 0;
 
             return m('g', [
-              m(
-                'title',
-                `Call ${index}: ${row.name ?? 'Unnamed call'}\n` +
-                  `Inclusive gasUsed: ${row.gas_used.toLocaleString()}\n` +
-                  `Depth: ${row.depth}`,
-              ),
-              m('rect', {
-                x,
-                y,
-                width: barWidth,
-                height,
-                fill: isRoot ? '#1B4F72' : '#2980B9',
-                stroke: isRoot ? '#000000' : 'none',
-                'stroke-width': isRoot ? 0.8 : 0,
-              }),
-            ]);
+                    m('rect', {
+                      x,
+                      y,
+                      width: barWidth,
+                      height,
+                      fill: isRoot ? '#1B4F72' : '#2980B9',
+                      stroke: isRoot ? '#000000' : 'none',
+                      'stroke-width': isRoot ? 0.8 : 0,
+                    }),
+
+                    m(
+                      'rect',
+                      {
+                        x: marginLeft + index * barStep,
+                        y: marginTop,
+                        width: barStep,
+                        height: plotHeight,
+                        fill: '#000000',
+                        'fill-opacity': 0.001,
+                        'pointer-events': 'all',
+                      },
+                      m(
+                        'title',
+                        `Call ${index}: ${row.name ?? 'Unnamed call'}\n` +
+                          `Inclusive gas used: ${row.gas_used.toLocaleString()} gas\n` +
+                          `Depth: ${row.depth}`,
+                      ),
+                    ),
+                  ]);
           }),
 
           m('line', {
@@ -223,7 +236,7 @@ export function renderGasChart(rows: readonly GasChartRow[]) {
               fill: '#333333',
               'font-size': 12,
             },
-            'Call index',
+            'Call frame index in execution order (unitless)',
           ),
 
           m(
@@ -237,7 +250,7 @@ export function renderGasChart(rows: readonly GasChartRow[]) {
               fill: '#333333',
               'font-size': 12,
             },
-            'Inclusive gasUsed (logarithmic scale)',
+            'Inclusive gas used (gas units, logarithmic scale)',
           ),
 
           m(
@@ -259,8 +272,7 @@ export function renderGasChart(rows: readonly GasChartRow[]) {
           style:
             'font-size:11px;color:#666;margin-top:8px;',
         },
-        'Each bar represents one call frame. The root frame is ' +
-          'dark blue. Hover over a bar to see its exact value.',
+        'Each bar represents one call frame in execution order. The bar height shows inclusive gas used in gas units on a logarithmic scale. Inclusive gas includes gas consumed by nested child calls, so parent and child values overlap and must not be added together. The root frame is dark blue. Hover over a bar to see the exact value.',
       ),
     ],
   );
