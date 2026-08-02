@@ -12,6 +12,7 @@ import m from 'mithril';
 import type {Trace} from '../../public/trace';
 import type {PerfettoPlugin} from '../../public/plugin';
 import {NUM, STR_NULL} from '../../trace_processor/query_result';
+import {renderGasChart} from './gas_chart';
 
 const CATEGORY_COLOURS: Record<string, string> = {
   'access_control': '#9B59B6',
@@ -202,6 +203,7 @@ export default class SmartContractPlugin implements PerfettoPlugin {
                 ),
               ),
             ),
+            renderGasChart(gasRows),
 
             m(
               'div',
