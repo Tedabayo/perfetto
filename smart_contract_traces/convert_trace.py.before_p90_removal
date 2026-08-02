@@ -51,6 +51,24 @@ def get_int_arg(args, *keys):
     return 0
 
 
+def compute_p90(values):
+    values = sorted([v for v in values if v > 0])
+
+    if not values:
+        return 0
+
+    index = 0.9 * (len(values) - 1)
+    lower = int(index)
+    upper = lower + 1
+
+    if upper >= len(values):
+        return round(values[-1])
+
+    fraction = index - lower
+    interpolated = values[lower] + fraction * (values[upper] - values[lower])
+
+    return round(interpolated)
+
 
 def is_access_control(name):
     name_lower = str(name).lower()
@@ -89,12 +107,15 @@ def compute_depths(events):
     return depths
 
 
-def assign_category(name, kind, value_decimal, amount_decimal):
+def assign_category(name, kind, value_decimal, amount_decimal, gas_used, p90):
     if is_access_control(name):
         return "access_control"
 
     if value_decimal > 0 or amount_decimal > 0:
         return "money_flow"
+
+    if gas_used >= p90:
+        return "gas_heavy"
 
     if kind in CALL_KINDS:
         return "contract_call"
@@ -119,6 +140,7 @@ def process_trace(input_path, output_path):
         gas_used = get_int_arg(args, "gasUsed", "gas_used", "gas_used_decimal")
         gas_values.append(gas_used)
 
+    p90 = compute_p90(gas_values)
     depths = compute_depths(events)
 
     updated_events = []
@@ -179,6 +201,8 @@ def process_trace(input_path, output_path):
                 kind=kind,
                 value_decimal=value_decimal,
                 amount_decimal=amount_decimal,
+                gas_used=gas_used,
+                p90=p90,
             )
 
             args["kind"] = kind
@@ -186,9 +210,8 @@ def process_trace(input_path, output_path):
             args["gas_used_decimal"] = gas_used
             args["gas_assigned_decimal"] = gas_assigned
             args["gas_usage_ratio"] = gas_usage_ratio
-            args.pop("gas_heavy_threshold_90th", None)
-            args.pop("is_gas_heavy", None)
-            args["gas_heavy_threshold_method"] = "none"
+            args["gas_heavy_threshold_90th"] = p90
+            args["is_gas_heavy"] = gas_used >= p90
             args["value_decimal"] = value_decimal
             args["amount_decimal"] = amount_decimal
             args["is_money_flow"] = value_decimal > 0 or amount_decimal > 0
@@ -215,7 +238,7 @@ def process_trace(input_path, output_path):
     print(f"Input file: {input_path}")
     print(f"Output file: {output_path}")
     print(f"Total calls: {len(begin_events)}")
-    print("Numerical gas-heavy threshold: none")
+    print(f"P90 threshold: {p90}")
     print(f"Max gas used: {max(gas_values) if gas_values else 0}")
 
     print("\nCategory counts:")

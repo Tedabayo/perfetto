@@ -199,11 +199,6 @@ export function randomColor(): string {
 // Anything unmatched falls back to Perfetto's default name-hash coloring.
 // -----------------------------------------------------------------------
 const SMART_CONTRACT_COLORS: ReadonlyArray<[RegExp, ColorScheme]> = [
-  // Explicit evidence-backed operation-family classification.
-  [
-    /^potential_gas_limit_risk$/i,
-    makeColorScheme(new HSLColor({h: 0, s: 80, l: 45})),
-  ],
   // Money movement: transfers, withdrawals, ETH fallback receives.
   [
     /transfer|withdraw|fallback/i,
