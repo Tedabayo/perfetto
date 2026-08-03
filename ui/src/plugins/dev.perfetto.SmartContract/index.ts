@@ -13,6 +13,7 @@ import type {Trace} from '../../public/trace';
 import type {PerfettoPlugin} from '../../public/plugin';
 import {NUM, STR_NULL} from '../../trace_processor/query_result';
 import {renderGasChart} from './gas_chart';
+import {renderFamilyGrowthChart} from './family_growth_chart';
 import {renderAdditionalGasAnalysis} from './gas_analysis';
 import {renderMoneyFlow} from './money_flow';
 
@@ -52,6 +53,13 @@ interface SliceRow {
   value_eth: string | null;
   has_transfer_metadata: number;
   has_native_value: number;
+  family_tested_sizes_csv: string | null;
+  family_receipt_gas_csv: string | null;
+  matched_family: string | null;
+  matched_function: string | null;
+  controlling_parameter: string | null;
+  controlling_input_value: number;
+  classification_decision: string | null;
 }
 
 
@@ -135,6 +143,12 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       render: () => {
         const gasRows = slices.filter((s) => s.gas_used > 0);
 
+        const familyRow = slices.find(
+          (s) =>
+            s.family_tested_sizes_csv !== null &&
+            s.family_receipt_gas_csv !== null,
+        );
+
         if (gasRows.length === 0) {
           return m(
             'div',
@@ -149,14 +163,28 @@ export default class SmartContractPlugin implements PerfettoPlugin {
         }
 
         const maxGas = Math.max(...gasRows.map((s) => s.gas_used));
-        const riskCount = gasRows.filter(
-          (s) => s.visual_category === 'potential_gas_limit_risk',
-        ).length;
+
+        const decision = familyRow?.classification_decision;
+
+        const gasHeavyClassification =
+          decision ===
+            'gas_heavy_relative_to_controlled_family_envelope' ||
+          decision === 'confirmed_out_of_gas'
+            ? 'YES'
+            : decision === 'within_controlled_family_envelope' ||
+                decision ===
+                  'constant_cost_within_calibrated_range' ||
+                decision === 'bounded_input_dependent_growth' ||
+                decision === 'bounded_input_rejection'
+              ? 'NO'
+              : decision
+                ? 'REVIEW'
+                : 'NOT AVAILABLE';
 
         const cards = [
           ['Call frames with gas data', gasRows.length.toLocaleString()],
           ['Maximum inclusive frame gas', `${maxGas.toLocaleString()} gas`],
-          ['Risk-labelled frames', riskCount.toLocaleString()],
+          ['Gas-heavy classification', gasHeavyClassification],
           ['Numerical threshold', 'None'],
         ];
 
@@ -214,6 +242,25 @@ export default class SmartContractPlugin implements PerfettoPlugin {
               ),
             ),
             renderGasChart(gasRows),
+
+            familyRow
+              ? renderFamilyGrowthChart({
+                  familyId: familyRow.matched_family,
+                  functionName: familyRow.matched_function,
+                  controllingParameter:
+                    familyRow.controlling_parameter,
+                  testedSizesCsv:
+                    familyRow.family_tested_sizes_csv,
+                  receiptGasCsv:
+                    familyRow.family_receipt_gas_csv,
+                  observedInput:
+                    familyRow.controlling_input_value,
+                  observedGas: familyRow.gas_used,
+                  decision:
+                    familyRow.classification_decision,
+                })
+              : null,
+
             renderAdditionalGasAnalysis(gasRows),
 
             m(
@@ -442,7 +489,31 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
           CAST(has_native_arg.int_value AS INT),
           CAST(has_native_arg.string_value AS INT),
           0
-        ) AS has_native_value
+        ) AS has_native_value,
+
+        family_sizes_arg.string_value
+          AS family_tested_sizes_csv,
+
+        family_gas_arg.string_value
+          AS family_receipt_gas_csv,
+
+        matched_family_arg.string_value
+          AS matched_family,
+
+        matched_function_arg.string_value
+          AS matched_function,
+
+        controlling_parameter_arg.string_value
+          AS controlling_parameter,
+
+        COALESCE(
+          CAST(controlling_input_arg.int_value AS INT),
+          CAST(controlling_input_arg.string_value AS INT),
+          0
+        ) AS controlling_input_value,
+
+        classification_decision_arg.string_value
+          AS classification_decision
 
       FROM slice s
 
@@ -511,6 +582,39 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
         ON has_native_arg.arg_set_id = s.arg_set_id
        AND has_native_arg.key = 'args.has_native_value'
 
+      LEFT JOIN args family_sizes_arg
+        ON family_sizes_arg.arg_set_id = s.arg_set_id
+       AND family_sizes_arg.key =
+         'args.familyTestedSizesCsv'
+
+      LEFT JOIN args family_gas_arg
+        ON family_gas_arg.arg_set_id = s.arg_set_id
+       AND family_gas_arg.key =
+         'args.familyReceiptGasCsv'
+
+      LEFT JOIN args matched_family_arg
+        ON matched_family_arg.arg_set_id = s.arg_set_id
+       AND matched_family_arg.key = 'args.matchedFamily'
+
+      LEFT JOIN args matched_function_arg
+        ON matched_function_arg.arg_set_id = s.arg_set_id
+       AND matched_function_arg.key = 'args.matchedFunction'
+
+      LEFT JOIN args controlling_parameter_arg
+        ON controlling_parameter_arg.arg_set_id = s.arg_set_id
+       AND controlling_parameter_arg.key =
+         'args.controllingParameter'
+
+      LEFT JOIN args controlling_input_arg
+        ON controlling_input_arg.arg_set_id = s.arg_set_id
+       AND controlling_input_arg.key =
+         'args.controllingInputValue'
+
+      LEFT JOIN args classification_decision_arg
+        ON classification_decision_arg.arg_set_id = s.arg_set_id
+       AND classification_decision_arg.key =
+         'args.classificationDecision'
+
       WHERE
         gas_used_arg.int_value IS NOT NULL
         OR gas_used_arg.string_value IS NOT NULL
@@ -538,6 +642,13 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
       value_eth: STR_NULL,
       has_transfer_metadata: NUM,
       has_native_value: NUM,
+      family_tested_sizes_csv: STR_NULL,
+      family_receipt_gas_csv: STR_NULL,
+      matched_family: STR_NULL,
+      matched_function: STR_NULL,
+      controlling_parameter: STR_NULL,
+      controlling_input_value: NUM,
+      classification_decision: STR_NULL,
     });
 
     for (; iter.valid(); iter.next()) {
@@ -559,6 +670,18 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
         value_eth: iter.value_eth,
         has_transfer_metadata: iter.has_transfer_metadata,
         has_native_value: iter.has_native_value,
+        family_tested_sizes_csv:
+          iter.family_tested_sizes_csv,
+        family_receipt_gas_csv:
+          iter.family_receipt_gas_csv,
+        matched_family: iter.matched_family,
+        matched_function: iter.matched_function,
+        controlling_parameter:
+          iter.controlling_parameter,
+        controlling_input_value:
+          iter.controlling_input_value,
+        classification_decision:
+          iter.classification_decision,
       });
     }
 
