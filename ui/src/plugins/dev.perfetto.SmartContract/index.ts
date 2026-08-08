@@ -13,6 +13,7 @@ import type {Trace} from '../../public/trace';
 import type {PerfettoPlugin} from '../../public/plugin';
 import {TrackNode} from '../../public/workspace';
 import {Checkbox} from '../../widgets/checkbox';
+import {Select} from '../../widgets/select';
 import {NUM, NUM_NULL, STR_NULL} from '../../trace_processor/query_result';
 import {renderGasChart} from './gas_chart';
 import {renderFamilyGrowthChart} from './family_growth_chart';
@@ -77,6 +78,7 @@ export default class SmartContractPlugin implements PerfettoPlugin {
     let callFilterText = '';
     let failedCallsOnly = false;
     let transferCallsOnly = false;
+    let selectedDepth: number | null = null;
 
     if (slices.length > 0) {
       this.organizeFunctionCounterTracks(ctx);
@@ -94,10 +96,15 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       render: () => {
         const query = callFilterText.trim().toLowerCase();
 
+        const availableDepths = Array.from(
+          new Set(slices.map((slice) => slice.depth)),
+        ).sort((a, b) => a - b);
+
         const hasActiveFilter =
           query !== '' ||
           failedCallsOnly ||
-          transferCallsOnly;
+          transferCallsOnly ||
+          selectedDepth !== null;
 
         const matches =
           !hasActiveFilter
@@ -122,10 +129,15 @@ export default class SmartContractPlugin implements PerfettoPlugin {
                   slice.has_transfer_metadata > 0 ||
                   slice.has_native_value > 0;
 
+                const depthMatches =
+                  selectedDepth === null ||
+                  slice.depth === selectedDepth;
+
                 return (
                   textMatches &&
                   failureMatches &&
-                  transferMatches
+                  transferMatches &&
+                  depthMatches
                 );
               });
 
@@ -176,6 +188,43 @@ export default class SmartContractPlugin implements PerfettoPlugin {
                     transferCallsOnly = !transferCallsOnly;
                   },
                 }),
+              ],
+            ),
+
+            m(
+              'div',
+              {
+                style:
+                  'display:flex;align-items:center;gap:8px;' +
+                  'margin-bottom:10px;',
+              },
+              [
+                m('span', 'Depth'),
+                m(
+                  Select,
+                  {
+                    value:
+                      selectedDepth === null
+                        ? ''
+                        : String(selectedDepth),
+                    oninput: (event: Event) => {
+                      const value =
+                        (event.target as HTMLSelectElement).value;
+                      selectedDepth =
+                        value === '' ? null : Number(value);
+                    },
+                  },
+                  [
+                    m('option', {value: ''}, 'All depths'),
+                    ...availableDepths.map((depth) =>
+                      m(
+                        'option',
+                        {value: String(depth)},
+                        `Depth ${depth}`,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
 
