@@ -295,11 +295,17 @@ export default class SmartContractPlugin implements PerfettoPlugin {
                 return m(
                   'div',
                   {
+                    onclick: () => {
+                      ctx.selection.selectSqlEvent('slice', row.id, {
+                        scrollToSelection: true,
+                      });
+                    },
                     style:
                       'display:grid;' +
                       'grid-template-columns:44px 240px 1fr 120px;' +
                       'gap:8px;align-items:center;padding:5px 4px;' +
-                      'border-bottom:1px solid #eee;',
+                      'border-bottom:1px solid #eee;' +
+                      'cursor:pointer;',
                   },
                   [
                     m('div', String(index + 1)),
