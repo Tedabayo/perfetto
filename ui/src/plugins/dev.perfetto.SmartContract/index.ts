@@ -20,6 +20,7 @@ import {renderGasChart} from './gas_chart';
 import {renderFamilyGrowthChart} from './family_growth_chart';
 import {renderAdditionalGasAnalysis} from './gas_analysis';
 import {renderMoneyFlow} from './money_flow';
+import {renderRepeatedPatterns} from './repeated_patterns';
 
 
 const CATEGORY_COLOURS: Record<string, string> = {
@@ -663,6 +664,19 @@ export default class SmartContractPlugin implements PerfettoPlugin {
         }),
     });
 
+    // ── Repeated Execution Patterns panel ────────────────────────────────────
+    ctx.sidePanel.registerTab({
+      uri: 'dev.perfetto.SmartContract#RepeatedPatterns',
+      title: 'Repeated Execution Patterns',
+      icon: 'repeat',
+      render: () =>
+        renderRepeatedPatterns(slices, (sliceId) => {
+          ctx.selection.selectSqlEvent('slice', sliceId, {
+            scrollToSelection: true,
+          });
+        }),
+    });
+
     ctx.commands.registerCommand({
       id: 'dev.perfetto.SmartContract#ShowGasGraphPanel',
       name: 'Smart Contract: Show Gas Graph Panel',
@@ -675,6 +689,15 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       name: 'Smart Contract: Show Money Flow Panel',
       callback: () =>
         ctx.sidePanel.showTab('dev.perfetto.SmartContract#MoneyFlow'),
+    });
+
+    ctx.commands.registerCommand({
+      id: 'dev.perfetto.SmartContract#ShowRepeatedPatternsPanel',
+      name: 'Smart Contract: Show Repeated Execution Patterns Panel',
+      callback: () =>
+        ctx.sidePanel.showTab(
+          'dev.perfetto.SmartContract#RepeatedPatterns',
+        ),
     });
 
     ctx.commands.registerCommand({
