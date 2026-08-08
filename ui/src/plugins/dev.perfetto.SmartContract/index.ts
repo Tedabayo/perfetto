@@ -12,6 +12,7 @@ import m from 'mithril';
 import type {Trace} from '../../public/trace';
 import type {PerfettoPlugin} from '../../public/plugin';
 import {TrackNode} from '../../public/workspace';
+import {Checkbox} from '../../widgets/checkbox';
 import {NUM, NUM_NULL, STR_NULL} from '../../trace_processor/query_result';
 import {renderGasChart} from './gas_chart';
 import {renderFamilyGrowthChart} from './family_growth_chart';
@@ -74,6 +75,8 @@ export default class SmartContractPlugin implements PerfettoPlugin {
     console.log(`[SmartContract] Loaded ${slices.length} smart contract slices`);
 
     let callFilterText = '';
+    let failedCallsOnly = false;
+    let transferCallsOnly = false;
 
     if (slices.length > 0) {
       this.organizeFunctionCounterTracks(ctx);
@@ -91,19 +94,40 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       render: () => {
         const query = callFilterText.trim().toLowerCase();
 
+        const hasActiveFilter =
+          query !== '' ||
+          failedCallsOnly ||
+          transferCallsOnly;
+
         const matches =
-          query === ''
+          !hasActiveFilter
             ? []
-            : slices.filter((slice) =>
-                [
-                  slice.name,
-                  slice.call_type,
-                  slice.from_address,
-                  slice.to_address,
-                ].some((value) =>
-                  value?.toLowerCase().includes(query),
-                ),
-              );
+            : slices.filter((slice) => {
+                const textMatches =
+                  query === '' ||
+                  [
+                    slice.name,
+                    slice.call_type,
+                    slice.from_address,
+                    slice.to_address,
+                  ].some((value) =>
+                    value?.toLowerCase().includes(query),
+                  );
+
+                const failureMatches =
+                  !failedCallsOnly || slice.success === 0;
+
+                const transferMatches =
+                  !transferCallsOnly ||
+                  slice.has_transfer_metadata > 0 ||
+                  slice.has_native_value > 0;
+
+                return (
+                  textMatches &&
+                  failureMatches &&
+                  transferMatches
+                );
+              });
 
         return m(
           'div',
@@ -130,7 +154,32 @@ export default class SmartContractPlugin implements PerfettoPlugin {
                 'border:1px solid #bbb;border-radius:5px;',
             }),
 
-            query === ''
+            m(
+              'div',
+              {
+                style:
+                  'display:flex;gap:16px;flex-wrap:wrap;' +
+                  'margin-bottom:10px;',
+              },
+              [
+                m(Checkbox, {
+                  label: 'Failed calls only',
+                  checked: failedCallsOnly,
+                  onchange: () => {
+                    failedCallsOnly = !failedCallsOnly;
+                  },
+                }),
+                m(Checkbox, {
+                  label: 'Asset/value calls only',
+                  checked: transferCallsOnly,
+                  onchange: () => {
+                    transferCallsOnly = !transferCallsOnly;
+                  },
+                }),
+              ],
+            ),
+
+            !hasActiveFilter
               ? m(
                   'div',
                   {style: 'color:#666;'},
@@ -144,7 +193,7 @@ export default class SmartContractPlugin implements PerfettoPlugin {
                   }`,
                 ),
 
-            query !== ''
+            hasActiveFilter
               ? m(
                   'div',
                   {style: 'max-height:560px;overflow-y:auto;'},
