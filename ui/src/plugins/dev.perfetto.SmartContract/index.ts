@@ -73,6 +73,8 @@ export default class SmartContractPlugin implements PerfettoPlugin {
     const slices = await this.querySlices(ctx);
     console.log(`[SmartContract] Loaded ${slices.length} smart contract slices`);
 
+    let callFilterText = '';
+
     if (slices.length > 0) {
       this.organizeFunctionCounterTracks(ctx);
 
@@ -80,6 +82,123 @@ export default class SmartContractPlugin implements PerfettoPlugin {
         this.organizeExecutionTracks(ctx, slices);
       });
     }
+
+    // ── Call Filter panel ─────────────────────────────────────────────────────
+    ctx.sidePanel.registerTab({
+      uri: 'dev.perfetto.SmartContract#CallFilter',
+      title: 'Smart Contract Call Filter',
+      icon: 'filter_alt',
+      render: () => {
+        const query = callFilterText.trim().toLowerCase();
+
+        const matches =
+          query === ''
+            ? []
+            : slices.filter((slice) =>
+                [
+                  slice.name,
+                  slice.call_type,
+                  slice.from_address,
+                  slice.to_address,
+                ].some((value) =>
+                  value?.toLowerCase().includes(query),
+                ),
+              );
+
+        return m(
+          'div',
+          {style: 'padding:16px;font-size:13px;'},
+          [
+            m(
+              'h2',
+              {style: 'margin:0 0 10px;font-size:16px;'},
+              'Call Filter',
+            ),
+
+            m('input', {
+              type: 'text',
+              placeholder:
+                'Search function, call type, from, or to address',
+              value: callFilterText,
+              oninput: (event: InputEvent) => {
+                callFilterText =
+                  (event.target as HTMLInputElement).value;
+              },
+              style:
+                'width:100%;box-sizing:border-box;' +
+                'padding:8px 10px;margin-bottom:10px;' +
+                'border:1px solid #bbb;border-radius:5px;',
+            }),
+
+            query === ''
+              ? m(
+                  'div',
+                  {style: 'color:#666;'},
+                  `Search across ${slices.length} smart-contract calls.`,
+                )
+              : m(
+                  'div',
+                  {style: 'margin-bottom:8px;color:#555;'},
+                  `${matches.length} matching call${
+                    matches.length === 1 ? '' : 's'
+                  }`,
+                ),
+
+            query !== ''
+              ? m(
+                  'div',
+                  {style: 'max-height:560px;overflow-y:auto;'},
+                  matches.map((row) =>
+                    m(
+                      'div',
+                      {
+                        onclick: () => {
+                          ctx.selection.selectSqlEvent(
+                            'slice',
+                            row.id,
+                            {scrollToSelection: true},
+                          );
+                        },
+                        style:
+                          'padding:8px 6px;' +
+                          'border-bottom:1px solid #eee;' +
+                          'cursor:pointer;',
+                      },
+                      [
+                        m(
+                          'div',
+                          {style: 'font-weight:600;'},
+                          row.name ?? 'Unnamed call',
+                        ),
+                        m(
+                          'div',
+                          {style: 'font-size:11px;color:#666;'},
+                          [
+                            row.call_type ?? 'Call type unavailable',
+                            ` · depth ${row.depth}`,
+                            row.to_address
+                              ? ` · to ${row.to_address}`
+                              : '',
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : null,
+          ],
+        );
+      },
+    });
+
+    ctx.commands.registerCommand({
+      id: 'dev.perfetto.SmartContract#ShowCallFilterPanel',
+      name: 'Smart Contract: Show Call Filter Panel',
+      callback: () =>
+        ctx.sidePanel.showTab(
+          'dev.perfetto.SmartContract#CallFilter',
+        ),
+    });
 
     // ── Legend panel ──────────────────────────────────────────────────────────
     ctx.sidePanel.registerTab({
@@ -611,7 +730,24 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
           0
         ) AS gas_assigned,
 
-        kind_arg.string_value AS call_type,
+        CASE
+          WHEN UPPER(call_type_arg.string_value) IN (
+            'CALL', 'STATICCALL', 'DELEGATECALL',
+            'CALLCODE', 'CREATE', 'CREATE2'
+          )
+            THEN UPPER(call_type_arg.string_value)
+          WHEN UPPER(type_arg.string_value) IN (
+            'CALL', 'STATICCALL', 'DELEGATECALL',
+            'CALLCODE', 'CREATE', 'CREATE2'
+          )
+            THEN UPPER(type_arg.string_value)
+          WHEN UPPER(kind_arg.string_value) IN (
+            'CALL', 'STATICCALL', 'DELEGATECALL',
+            'CALLCODE', 'CREATE', 'CREATE2'
+          )
+            THEN UPPER(kind_arg.string_value)
+          ELSE NULL
+        END AS call_type,
 
         CASE
           WHEN success_arg.int_value IS NOT NULL
@@ -706,6 +842,14 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
       LEFT JOIN args gas_arg
         ON gas_arg.arg_set_id = s.arg_set_id
        AND gas_arg.key = 'args.gas'
+
+      LEFT JOIN args call_type_arg
+        ON call_type_arg.arg_set_id = s.arg_set_id
+       AND call_type_arg.key = 'args.call_type'
+
+      LEFT JOIN args type_arg
+        ON type_arg.arg_set_id = s.arg_set_id
+       AND type_arg.key = 'args.type'
 
       LEFT JOIN args kind_arg
         ON kind_arg.arg_set_id = s.arg_set_id
