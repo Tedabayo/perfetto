@@ -1,6 +1,7 @@
 import m from 'mithril';
 
 export interface MoneyFlowRow {
+  readonly id: number;
   readonly call_index: number;
   readonly name: string | null;
   readonly from_address: string | null;
@@ -14,6 +15,7 @@ export interface MoneyFlowRow {
 }
 
 interface TransferRecord {
+  readonly sliceId: number;
   readonly callIndex: number;
   readonly operation: string;
   readonly sender: string;
@@ -34,6 +36,7 @@ interface GraphEdge {
   readonly receiver: string;
   readonly label: string;
   readonly tooltip: string;
+  readonly sliceIds: readonly number[];
 }
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -106,6 +109,7 @@ function toTransferRecords(
             : '0';
 
       return {
+        sliceId: row.id,
         callIndex: row.call_index,
         operation: row.name ?? 'Unknown operation',
         sender: row.from_address ?? 'Unknown sender',
@@ -207,6 +211,7 @@ function buildEdges(
         sender: group.sender,
         receiver: group.receiver,
         label: `${count} ${count === 1 ? 'transfer' : 'transfers'}`,
+        sliceIds: group.records.map((record) => record.sliceId),
         tooltip: group.records
           .map(
             (record) =>
@@ -220,6 +225,7 @@ function buildEdges(
   return transfers.map((transfer) => ({
     sender: transfer.sender,
     receiver: transfer.receiver,
+    sliceIds: [transfer.sliceId],
     label:
       edgeLabelMode === 'Exact'
         ? `#${transfer.callIndex}: ${transfer.amount} ${transfer.asset}`
@@ -287,7 +293,10 @@ function renderLegendItem(colour: string, label: string) {
   );
 }
 
-function renderGraph(transfers: readonly TransferRecord[]) {
+function renderGraph(
+  transfers: readonly TransferRecord[],
+  onSelectSlice: (sliceId: number) => void,
+) {
   const nodes = buildNodes(transfers);
   const edges = buildEdges(transfers);
   const nodeByAddress = new Map(
@@ -345,10 +354,18 @@ function renderGraph(transfers: readonly TransferRecord[]) {
               {
                 "d": edgePath(sender, receiver, index),
                 "fill": 'none',
+                onclick: () => {
+                  if (edge.sliceIds.length === 1) {
+                    onSelectSlice(edge.sliceIds[0]);
+                  } else {
+                    edgeLabelMode = 'Exact';
+                  }
+                },
                 "stroke": '#8194A3',
                 'stroke-width': 3,
                 'stroke-opacity': 0.82,
                 'marker-end': 'url(#money-flow-arrow)',
+                "style": 'cursor:pointer;',
               },
               m('title', edge.tooltip),
             ),
@@ -407,6 +424,7 @@ function renderGraph(transfers: readonly TransferRecord[]) {
 
 function renderTransferTable(
   transfers: readonly TransferRecord[],
+  onSelectSlice: (sliceId: number) => void,
 ) {
   return m(
     'div',
@@ -442,12 +460,14 @@ function renderTransferTable(
           m(
             'div',
             {
+              onclick: () => onSelectSlice(transfer.sliceId),
               style:
                 'display:grid;' +
                 'grid-template-columns:70px 1.1fr 1.4fr 1.1fr 130px;' +
                 'gap:10px;padding:8px 10px;' +
                 'border-bottom:1px solid #eee;' +
-                'font-size:11px;align-items:center;',
+                'font-size:11px;align-items:center;' +
+                'cursor:pointer;',
             },
             [
               m(
@@ -486,6 +506,7 @@ function renderTransferTable(
 
 export function renderMoneyFlow(
   rows: readonly MoneyFlowRow[],
+  onSelectSlice: (sliceId: number) => void,
 ) {
   const allTransfers = toTransferRecords(rows);
 
@@ -634,7 +655,7 @@ export function renderMoneyFlow(
         ],
       ),
 
-      renderGraph(filteredTransfers),
+      renderGraph(filteredTransfers, onSelectSlice),
 
       m(
         'h3',
@@ -652,7 +673,7 @@ export function renderMoneyFlow(
           'preserved as strings to avoid rounding.',
       ),
 
-      renderTransferTable(filteredTransfers),
+      renderTransferTable(filteredTransfers, onSelectSlice),
 
       m(
         'p',

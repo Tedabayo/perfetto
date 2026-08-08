@@ -655,7 +655,12 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       uri: 'dev.perfetto.SmartContract#MoneyFlow',
       title: 'Smart Contract Money Flow',
       icon: 'account_tree',
-      render: () => renderMoneyFlow(slices),
+      render: () =>
+        renderMoneyFlow(slices, (sliceId) => {
+          ctx.selection.selectSqlEvent('slice', sliceId, {
+            scrollToSelection: true,
+          });
+        }),
     });
 
     ctx.commands.registerCommand({
