@@ -38,6 +38,7 @@ const CATEGORY_DESCRIPTIONS: Record<string, string> = {
 
 interface SliceRow {
   id: number;
+  track_id: number;
   name: string | null;
   visual_category: string | null;
   gas_used: number;
@@ -73,6 +74,10 @@ export default class SmartContractPlugin implements PerfettoPlugin {
 
     if (slices.length > 0) {
       this.organizeFunctionCounterTracks(ctx);
+
+      ctx.onTraceReady.addListener(() => {
+        this.organizeExecutionTracks(ctx, slices);
+      });
     }
 
     // ── Legend panel ──────────────────────────────────────────────────────────
@@ -440,6 +445,67 @@ export default class SmartContractPlugin implements PerfettoPlugin {
     });
   }
 
+  private organizeExecutionTracks(
+    ctx: Trace,
+    slices: SliceRow[],
+  ): void {
+    const countsByTrackId = new Map<number, number>();
+
+    for (const slice of slices) {
+      countsByTrackId.set(
+        slice.track_id,
+        (countsByTrackId.get(slice.track_id) ?? 0) + 1,
+      );
+    }
+
+    const tracksByParent = new Map<
+      TrackNode,
+      Array<{track: TrackNode; callCount: number}>
+    >();
+
+    for (const [trackId, callCount] of countsByTrackId) {
+      const candidateUris = [
+        `/slice_${trackId}`,
+        `/track_event_${trackId}`,
+      ];
+
+      const track = candidateUris
+        .map((uri) => ctx.defaultWorkspace.getTrackByUri(uri))
+        .find((candidate) => candidate !== undefined);
+
+      if (!track?.parent) continue;
+
+      const parent = track.parent;
+      const existing = tracksByParent.get(parent) ?? [];
+      existing.push({track, callCount});
+      tracksByParent.set(parent, existing);
+    }
+
+    for (const [parent, entries] of tracksByParent) {
+      if (entries.length === 0) continue;
+
+      const callCount = entries.reduce(
+        (total, entry) => total + entry.callCount,
+        0,
+      );
+
+      const group = new TrackNode({
+        name: 'Smart Contract Execution',
+        subtitle:
+          `${callCount} call frame${callCount === 1 ? '' : 's'}`,
+        isSummary: true,
+        collapsed: false,
+      });
+
+      const firstTrack = entries[0].track;
+      parent.addChildBefore(group, firstTrack);
+
+      for (const {track} of entries) {
+        group.addChildLast(track);
+      }
+    }
+  }
+
   private organizeFunctionCounterTracks(ctx: Trace): void {
     const counterTracks = [...ctx.defaultWorkspace.flatTracks].filter(
       (track) =>
@@ -481,6 +547,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
     const result = await ctx.engine.query(`
       SELECT
         s.id AS id,
+        s.track_id AS track_id,
         s.name AS name,
         cat_arg.string_value AS visual_category,
 
@@ -664,7 +731,13 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
          'args.classificationDecision'
 
       WHERE
-        gas_used_arg.int_value IS NOT NULL
+        cat_arg.string_value IS NOT NULL
+        OR kind_arg.string_value IS NOT NULL
+        OR call_index_arg.int_value IS NOT NULL
+        OR call_index_arg.string_value IS NOT NULL
+        OR from_arg.string_value IS NOT NULL
+        OR to_arg.string_value IS NOT NULL
+        OR gas_used_arg.int_value IS NOT NULL
         OR gas_used_arg.string_value IS NOT NULL
 
       ORDER BY s.ts
@@ -674,6 +747,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
 
     const iter = result.iter({
       id: NUM,
+      track_id: NUM,
       name: STR_NULL,
       visual_category: STR_NULL,
       gas_used: NUM,
@@ -702,6 +776,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
     for (; iter.valid(); iter.next()) {
       rows.push({
         id: iter.id,
+        track_id: iter.track_id,
         name: iter.name,
         visual_category: iter.visual_category,
         gas_used: iter.gas_used,
