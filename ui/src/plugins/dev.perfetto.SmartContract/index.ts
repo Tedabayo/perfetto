@@ -12,7 +12,7 @@ import m from 'mithril';
 import type {Trace} from '../../public/trace';
 import type {PerfettoPlugin} from '../../public/plugin';
 import {TrackNode} from '../../public/workspace';
-import {NUM, STR_NULL} from '../../trace_processor/query_result';
+import {NUM, NUM_NULL, STR_NULL} from '../../trace_processor/query_result';
 import {renderGasChart} from './gas_chart';
 import {renderFamilyGrowthChart} from './family_growth_chart';
 import {renderAdditionalGasAnalysis} from './gas_analysis';
@@ -44,6 +44,7 @@ interface SliceRow {
   gas_used: number;
   gas_assigned: number;
   call_type: string | null;
+  success: number | null;
   value: string | null;
   depth: number;
   call_index: number;
@@ -489,10 +490,53 @@ export default class SmartContractPlugin implements PerfettoPlugin {
         0,
       );
 
+      const relevantSlices = slices.filter((slice) =>
+        entries.some((entry) =>
+          entry.track.uri === `/slice_${slice.track_id}` ||
+          entry.track.uri === `/track_event_${slice.track_id}`,
+        ),
+      );
+
+      const maxDepth = relevantSlices.reduce(
+        (max, slice) => Math.max(max, slice.depth),
+        0,
+      );
+
+      const targetCount = new Set(
+        relevantSlices
+          .map((slice) => slice.to_address)
+          .filter((address): address is string => Boolean(address)),
+      ).size;
+
+      const slicesWithSuccess = relevantSlices.filter(
+        (slice) => slice.success !== null,
+      );
+
+      const failedCalls = slicesWithSuccess.filter(
+        (slice) => slice.success === 0,
+      ).length;
+
+      const transferCalls = relevantSlices.filter(
+        (slice) =>
+          slice.has_transfer_metadata > 0 ||
+          slice.has_native_value > 0,
+      ).length;
+
+      const overviewParts = [
+        `${callCount} call${callCount === 1 ? '' : 's'}`,
+        `depth ${maxDepth}`,
+        targetCount > 0 ? `${targetCount} targets` : null,
+        slicesWithSuccess.length > 0
+          ? `${failedCalls} failed`
+          : null,
+        transferCalls > 0
+          ? `${transferCalls} transfers`
+          : null,
+      ].filter((part): part is string => part !== null);
+
       const group = new TrackNode({
         name: 'Smart Contract Execution',
-        subtitle:
-          `${callCount} call frame${callCount === 1 ? '' : 's'}`,
+        subtitle: overviewParts.join(' · '),
         isSummary: true,
         collapsed: false,
       });
@@ -568,6 +612,17 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
         ) AS gas_assigned,
 
         kind_arg.string_value AS call_type,
+
+        CASE
+          WHEN success_arg.int_value IS NOT NULL
+            THEN CAST(success_arg.int_value AS INT)
+          WHEN LOWER(success_arg.string_value) IN ('true', '1')
+            THEN 1
+          WHEN LOWER(success_arg.string_value) IN ('false', '0')
+            THEN 0
+          ELSE NULL
+        END AS success,
+
         value_arg.string_value AS value,
         s.depth AS depth,
 
@@ -655,6 +710,10 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
       LEFT JOIN args kind_arg
         ON kind_arg.arg_set_id = s.arg_set_id
        AND kind_arg.key = 'args.kind'
+
+      LEFT JOIN args success_arg
+        ON success_arg.arg_set_id = s.arg_set_id
+       AND success_arg.key = 'args.success'
 
       LEFT JOIN args value_arg
         ON value_arg.arg_set_id = s.arg_set_id
@@ -753,6 +812,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
       gas_used: NUM,
       gas_assigned: NUM,
       call_type: STR_NULL,
+      success: NUM_NULL,
       value: STR_NULL,
       depth: NUM,
       call_index: NUM,
@@ -782,6 +842,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
         gas_used: iter.gas_used,
         gas_assigned: iter.gas_assigned,
         call_type: iter.call_type,
+        success: iter.success,
         value: iter.value,
         depth: iter.depth,
         call_index: iter.call_index,
