@@ -11,6 +11,7 @@
 import m from 'mithril';
 import type {Trace} from '../../public/trace';
 import type {PerfettoPlugin} from '../../public/plugin';
+import {TrackNode} from '../../public/workspace';
 import {NUM, STR_NULL} from '../../trace_processor/query_result';
 import {renderGasChart} from './gas_chart';
 import {renderFamilyGrowthChart} from './family_growth_chart';
@@ -69,6 +70,10 @@ export default class SmartContractPlugin implements PerfettoPlugin {
   async onTraceLoad(ctx: Trace): Promise<void> {
     const slices = await this.querySlices(ctx);
     console.log(`[SmartContract] Loaded ${slices.length} smart contract slices`);
+
+    if (slices.length > 0) {
+      this.organizeFunctionCounterTracks(ctx);
+    }
 
     // ── Legend panel ──────────────────────────────────────────────────────────
     ctx.sidePanel.registerTab({
@@ -434,6 +439,43 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       },
     });
   }
+
+  private organizeFunctionCounterTracks(ctx: Trace): void {
+    const counterTracks = [...ctx.defaultWorkspace.flatTracks].filter(
+      (track) =>
+        track.parent !== undefined &&
+        track.name.endsWith(' count'),
+    );
+
+    const tracksByParent = new Map<TrackNode, TrackNode[]>();
+
+    for (const track of counterTracks) {
+      const parent = track.parent;
+      if (!parent) continue;
+
+      const existing = tracksByParent.get(parent) ?? [];
+      existing.push(track);
+      tracksByParent.set(parent, existing);
+    }
+
+    for (const [parent, tracks] of tracksByParent) {
+      if (tracks.length === 0) continue;
+
+      const group = new TrackNode({
+        name: 'Function Statistics',
+        subtitle: `${tracks.length} function counter tracks`,
+        isSummary: true,
+        collapsed: true,
+      });
+
+      parent.addChildLast(group);
+
+      for (const track of tracks) {
+        group.addChildLast(track);
+      }
+    }
+  }
+
 private async querySlices(ctx: Trace): Promise<SliceRow[]> {
   try {
     const result = await ctx.engine.query(`
