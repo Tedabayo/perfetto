@@ -12,6 +12,7 @@ import m from 'mithril';
 import type {Trace} from '../../public/trace';
 import type {PerfettoPlugin} from '../../public/plugin';
 import {TrackNode} from '../../public/workspace';
+import {Button} from '../../widgets/button';
 import {Checkbox} from '../../widgets/checkbox';
 import {Select} from '../../widgets/select';
 import {NUM, NUM_NULL, STR_NULL} from '../../trace_processor/query_result';
@@ -40,6 +41,7 @@ const CATEGORY_DESCRIPTIONS: Record<string, string> = {
 
 interface SliceRow {
   id: number;
+  parent_id: number | null;
   track_id: number;
   name: string | null;
   visual_category: string | null;
@@ -79,6 +81,7 @@ export default class SmartContractPlugin implements PerfettoPlugin {
     let failedCallsOnly = false;
     let transferCallsOnly = false;
     let selectedDepth: number | null = null;
+    let focusedCallPathId: number | null = null;
 
     if (slices.length > 0) {
       this.organizeFunctionCounterTracks(ctx);
@@ -96,6 +99,26 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       render: () => {
         const query = callFilterText.trim().toLowerCase();
 
+        const slicesById = new Map(
+          slices.map((slice) => [slice.id, slice]),
+        );
+
+        const focusedPathIds = new Set<number>();
+
+        if (focusedCallPathId !== null) {
+          let current = slicesById.get(focusedCallPathId);
+
+          while (current !== undefined) {
+            focusedPathIds.add(current.id);
+
+            if (current.parent_id === null) {
+              break;
+            }
+
+            current = slicesById.get(current.parent_id);
+          }
+        }
+
         const availableDepths = Array.from(
           new Set(slices.map((slice) => slice.depth)),
         ).sort((a, b) => a - b);
@@ -104,7 +127,8 @@ export default class SmartContractPlugin implements PerfettoPlugin {
           query !== '' ||
           failedCallsOnly ||
           transferCallsOnly ||
-          selectedDepth !== null;
+          selectedDepth !== null ||
+          focusedCallPathId !== null;
 
         const matches =
           !hasActiveFilter
@@ -133,11 +157,16 @@ export default class SmartContractPlugin implements PerfettoPlugin {
                   selectedDepth === null ||
                   slice.depth === selectedDepth;
 
+                const pathMatches =
+                  focusedCallPathId === null ||
+                  focusedPathIds.has(slice.id);
+
                 return (
                   textMatches &&
                   failureMatches &&
                   transferMatches &&
-                  depthMatches
+                  depthMatches &&
+                  pathMatches
                 );
               });
 
@@ -228,6 +257,19 @@ export default class SmartContractPlugin implements PerfettoPlugin {
               ],
             ),
 
+            focusedCallPathId !== null
+              ? m(
+                  'div',
+                  {style: 'margin-bottom:10px;'},
+                  m(Button, {
+                    label: 'Clear focused path',
+                    onclick: () => {
+                      focusedCallPathId = null;
+                    },
+                  }),
+                )
+              : null,
+
             !hasActiveFilter
               ? m(
                   'div',
@@ -278,6 +320,21 @@ export default class SmartContractPlugin implements PerfettoPlugin {
                               ? ` · to ${row.to_address}`
                               : '',
                           ],
+                        ),
+                        m(
+                          'div',
+                          {style: 'margin-top:6px;'},
+                          m(Button, {
+                            label: 'Focus path',
+                            onclick: (event: Event) => {
+                              event.stopPropagation();
+                              callFilterText = '';
+                              failedCallsOnly = false;
+                              transferCallsOnly = false;
+                              selectedDepth = null;
+                              focusedCallPathId = row.id;
+                            },
+                          }),
                         ),
                       ],
                     ),
@@ -808,6 +865,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
     const result = await ctx.engine.query(`
       SELECT
         s.id AS id,
+        s.parent_id AS parent_id,
         s.track_id AS track_id,
         s.name AS name,
         cat_arg.string_value AS visual_category,
@@ -1048,6 +1106,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
 
     const iter = result.iter({
       id: NUM,
+      parent_id: NUM_NULL,
       track_id: NUM,
       name: STR_NULL,
       visual_category: STR_NULL,
@@ -1078,6 +1137,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
     for (; iter.valid(); iter.next()) {
       rows.push({
         id: iter.id,
+        parent_id: iter.parent_id,
         track_id: iter.track_id,
         name: iter.name,
         visual_category: iter.visual_category,
