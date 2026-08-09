@@ -51,6 +51,7 @@ const schema = {
   thread_dur: LONG_NULL,
   category: STR_NULL,
   visual_category: STR_NULL,
+  success: NUM_NULL,
   correlation_id: STR_NULL,
   arg_set_id: NUM_NULL,
   parent_id: NUM_NULL,
@@ -90,6 +91,12 @@ export async function createTraceProcessorSliceTrack({
       ? (row) => detailsPanel(row)
       : () => new ThreadSliceDetailsPanel(trace),
     colorizer: (row) => {
+      if (row.success === 0) {
+        return getColorForSlice('smart_contract_failed_call', {
+          stripTrailingDigits: false,
+        });
+      }
+
       if (row.visual_category === 'potential_gas_limit_risk') {
         return getColorForSlice(row.visual_category, {
           stripTrailingDigits: false,
@@ -129,6 +136,15 @@ async function getDataset(
         track_id: 'track_id',
         category: 'category',
         visual_category: "extract_arg(arg_set_id, 'args.visual_category')",
+        success: `
+          CASE
+            WHEN LOWER(CAST(extract_arg(arg_set_id, 'args.success') AS TEXT))
+              IN ('true', '1') THEN 1
+            WHEN LOWER(CAST(extract_arg(arg_set_id, 'args.success') AS TEXT))
+              IN ('false', '0') THEN 0
+            ELSE NULL
+          END
+        `,
         correlation_id: "extract_arg(arg_set_id, 'correlation_id')",
         arg_set_id: 'arg_set_id',
         parent_id: 'parent_id',
@@ -175,6 +191,15 @@ async function getDataset(
         track_id: 'track_id',
         category: 'category',
         visual_category: "extract_arg(arg_set_id, 'args.visual_category')",
+        success: `
+          CASE
+            WHEN LOWER(CAST(extract_arg(arg_set_id, 'args.success') AS TEXT))
+              IN ('true', '1') THEN 1
+            WHEN LOWER(CAST(extract_arg(arg_set_id, 'args.success') AS TEXT))
+              IN ('false', '0') THEN 0
+            ELSE NULL
+          END
+        `,
         correlation_id: "extract_arg(arg_set_id, 'correlation_id')",
         arg_set_id: 'arg_set_id',
         parent_id: 'parent_id',

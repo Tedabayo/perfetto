@@ -199,6 +199,11 @@ export function randomColor(): string {
 // Anything unmatched falls back to Perfetto's default name-hash coloring.
 // -----------------------------------------------------------------------
 const SMART_CONTRACT_COLORS: ReadonlyArray<[RegExp, ColorScheme]> = [
+  // Explicit execution failure reported by the trace.
+  [
+    /^smart_contract_failed_call$/i,
+    makeColorScheme(new HSLColor({h: 350, s: 85, l: 32})),
+  ],
   // Explicit evidence-backed operation-family classification.
   [
     /^potential_gas_limit_risk$/i,
