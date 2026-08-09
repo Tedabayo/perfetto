@@ -33,7 +33,7 @@ const CATEGORY_COLOURS: Record<string, string> = {
 
 const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   'access_control': 'Permission and authorisation calls',
-  'money_flow': 'ETH value transfers',
+  'money_flow': 'Calls with available value-flow evidence',
   'potential_gas_limit_risk':
     'Operation-family risk supported by controlled measurements and source inspection',
   'contract_call': 'Ordinary inter-contract calls',
@@ -822,10 +822,12 @@ export default class SmartContractPlugin implements PerfettoPlugin {
         (slice) => slice.success === 0,
       ).length;
 
-      const transferCalls = relevantSlices.filter(
-        (slice) =>
-          slice.has_transfer_metadata > 0 ||
-          slice.has_native_value > 0,
+      const nativeValueCalls = relevantSlices.filter(
+        (slice) => slice.has_native_value > 0,
+      ).length;
+
+      const transferMetadataCalls = relevantSlices.filter(
+        (slice) => slice.has_transfer_metadata > 0,
       ).length;
 
       const overviewParts = [
@@ -835,8 +837,11 @@ export default class SmartContractPlugin implements PerfettoPlugin {
         slicesWithSuccess.length > 0
           ? `${failedCalls} failed`
           : null,
-        transferCalls > 0
-          ? `${transferCalls} transfers`
+        nativeValueCalls > 0
+          ? `${nativeValueCalls} native-value calls`
+          : null,
+        transferMetadataCalls > 0
+          ? `${transferMetadataCalls} transfer-metadata calls`
           : null,
       ].filter((part): part is string => part !== null);
 
