@@ -1,11 +1,15 @@
 import m from 'mithril';
 export interface GasChartRow {
+  readonly id: number;
   readonly name: string | null;
   readonly gas_used: number;
   readonly depth: number;
 }
 
-export function renderGasChart(rows: readonly GasChartRow[]) {
+export function renderGasChart(
+  rows: readonly GasChartRow[],
+  onSelectSlice: (sliceId: number) => void,
+) {
   const gasRows = rows.filter((row) => row.gas_used > 0);
 
   if (gasRows.length === 0) {
@@ -171,6 +175,8 @@ export function renderGasChart(rows: readonly GasChartRow[]) {
                         fill: '#000000',
                         'fill-opacity': 0.001,
                         'pointer-events': 'all',
+                        style: 'cursor:pointer;',
+                        onclick: () => onSelectSlice(row.id),
                       },
                       m(
                         'title',

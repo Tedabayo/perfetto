@@ -527,7 +527,11 @@ export default class SmartContractPlugin implements PerfettoPlugin {
                 ),
               ),
             ),
-            renderGasChart(gasRows),
+            renderGasChart(gasRows, (sliceId) => {
+              ctx.selection.selectSqlEvent('slice', sliceId, {
+                scrollToSelection: true,
+              });
+            }),
 
             familyRow
               ? renderFamilyGrowthChart({
