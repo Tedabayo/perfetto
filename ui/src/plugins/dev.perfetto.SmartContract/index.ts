@@ -45,6 +45,7 @@ interface SliceRow {
   parent_id: number | null;
   track_id: number;
   name: string | null;
+  record_type: string | null;
   visual_category: string | null;
   gas_used: number;
   gas_assigned: number;
@@ -75,8 +76,25 @@ export default class SmartContractPlugin implements PerfettoPlugin {
   static readonly id = 'dev.perfetto.SmartContract';
 
   async onTraceLoad(ctx: Trace): Promise<void> {
-    const slices = await this.querySlices(ctx);
-    console.log(`[SmartContract] Loaded ${slices.length} smart contract slices`);
+    const allSlices = await this.querySlices(ctx);
+
+    // Explicit asset-transfer records are kept out of execution analysis.
+    // Records without record_type remain call frames for backward compatibility.
+    const slices = allSlices.filter(
+      (slice) => slice.record_type !== 'asset_transfer',
+    );
+
+    const moneyFlowRows = allSlices.filter(
+      (slice) =>
+        slice.record_type === 'asset_transfer' ||
+        slice.has_transfer_metadata > 0 ||
+        slice.has_native_value > 0,
+    );
+
+    console.log(
+      `[SmartContract] Loaded ${slices.length} call frames and ` +
+        `${allSlices.length - slices.length} asset-transfer records`,
+    );
 
     let callFilterText = '';
     let failedCallsOnly = false;
@@ -661,7 +679,7 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       title: 'Smart Contract Money Flow',
       icon: 'account_tree',
       render: () =>
-        renderMoneyFlow(slices, (sliceId) => {
+        renderMoneyFlow(moneyFlowRows, (sliceId) => {
           ctx.selection.selectSqlEvent('slice', sliceId, {
             scrollToSelection: true,
           });
@@ -905,6 +923,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
         s.parent_id AS parent_id,
         s.track_id AS track_id,
         s.name AS name,
+        record_type_arg.string_value AS record_type,
         cat_arg.string_value AS visual_category,
 
         COALESCE(
@@ -1015,6 +1034,10 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
           AS classification_decision
 
       FROM slice s
+
+      LEFT JOIN args record_type_arg
+        ON record_type_arg.arg_set_id = s.arg_set_id
+       AND record_type_arg.key = 'args.record_type'
 
       LEFT JOIN args cat_arg
         ON cat_arg.arg_set_id = s.arg_set_id
@@ -1127,7 +1150,8 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
          'args.classificationDecision'
 
       WHERE
-        cat_arg.string_value IS NOT NULL
+        record_type_arg.string_value IS NOT NULL
+        OR cat_arg.string_value IS NOT NULL
         OR kind_arg.string_value IS NOT NULL
         OR call_index_arg.int_value IS NOT NULL
         OR call_index_arg.string_value IS NOT NULL
@@ -1146,6 +1170,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
       parent_id: NUM_NULL,
       track_id: NUM,
       name: STR_NULL,
+      record_type: STR_NULL,
       visual_category: STR_NULL,
       gas_used: NUM,
       gas_assigned: NUM,
@@ -1177,6 +1202,7 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
         parent_id: iter.parent_id,
         track_id: iter.track_id,
         name: iter.name,
+        record_type: iter.record_type,
         visual_category: iter.visual_category,
         gas_used: iter.gas_used,
         gas_assigned: iter.gas_assigned,
