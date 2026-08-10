@@ -59,9 +59,11 @@ interface SliceRow {
   token_symbol: string | null;
   token_contract: string | null;
   transfer_amount: string | null;
+  transfer_amount_raw: string | null;
   value_eth: string | null;
   has_transfer_metadata: number;
   has_native_value: number;
+  has_realized_native_value: number | null;
   family_tested_sizes_csv: string | null;
   family_receipt_gas_csv: string | null;
   matched_family: string | null;
@@ -88,7 +90,11 @@ export default class SmartContractPlugin implements PerfettoPlugin {
       (slice) =>
         slice.record_type === 'asset_transfer' ||
         slice.has_transfer_metadata > 0 ||
-        slice.has_native_value > 0,
+        slice.has_realized_native_value === 1 ||
+        (
+          slice.has_realized_native_value === null &&
+          slice.has_native_value > 0
+        ),
     );
 
     console.log(
@@ -992,6 +998,12 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
         ) AS transfer_amount,
 
         COALESCE(
+          transfer_amount_raw_arg.string_value,
+          CAST(transfer_amount_raw_arg.real_value AS TEXT),
+          CAST(transfer_amount_raw_arg.int_value AS TEXT)
+        ) AS transfer_amount_raw,
+
+        COALESCE(
           value_eth_arg.string_value,
           CAST(value_eth_arg.real_value AS TEXT),
           CAST(value_eth_arg.int_value AS TEXT)
@@ -1008,6 +1020,16 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
           CAST(has_native_arg.string_value AS INT),
           0
         ) AS has_native_value,
+
+        CASE
+          WHEN has_realized_native_arg.int_value IS NOT NULL
+            THEN CAST(has_realized_native_arg.int_value AS INT)
+          WHEN LOWER(has_realized_native_arg.string_value) IN ('true', '1')
+            THEN 1
+          WHEN LOWER(has_realized_native_arg.string_value) IN ('false', '0')
+            THEN 0
+          ELSE NULL
+        END AS has_realized_native_value,
 
         family_sizes_arg.string_value
           AS family_tested_sizes_csv,
@@ -1104,6 +1126,11 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
        AND transfer_amount_arg.key =
          'args.transfer_amount_normalized'
 
+      LEFT JOIN args transfer_amount_raw_arg
+        ON transfer_amount_raw_arg.arg_set_id = s.arg_set_id
+       AND transfer_amount_raw_arg.key =
+         'args.transfer_amount_raw'
+
       LEFT JOIN args value_eth_arg
         ON value_eth_arg.arg_set_id = s.arg_set_id
        AND value_eth_arg.key = 'args.value_eth'
@@ -1115,6 +1142,11 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
       LEFT JOIN args has_native_arg
         ON has_native_arg.arg_set_id = s.arg_set_id
        AND has_native_arg.key = 'args.has_native_value'
+
+      LEFT JOIN args has_realized_native_arg
+        ON has_realized_native_arg.arg_set_id = s.arg_set_id
+       AND has_realized_native_arg.key =
+         'args.has_realized_native_value'
 
       LEFT JOIN args family_sizes_arg
         ON family_sizes_arg.arg_set_id = s.arg_set_id
@@ -1184,9 +1216,11 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
       token_symbol: STR_NULL,
       token_contract: STR_NULL,
       transfer_amount: STR_NULL,
+      transfer_amount_raw: STR_NULL,
       value_eth: STR_NULL,
       has_transfer_metadata: NUM,
       has_native_value: NUM,
+      has_realized_native_value: NUM_NULL,
       family_tested_sizes_csv: STR_NULL,
       family_receipt_gas_csv: STR_NULL,
       matched_family: STR_NULL,
@@ -1216,9 +1250,12 @@ private async querySlices(ctx: Trace): Promise<SliceRow[]> {
         token_symbol: iter.token_symbol,
         token_contract: iter.token_contract,
         transfer_amount: iter.transfer_amount,
+        transfer_amount_raw: iter.transfer_amount_raw,
         value_eth: iter.value_eth,
         has_transfer_metadata: iter.has_transfer_metadata,
         has_native_value: iter.has_native_value,
+        has_realized_native_value:
+          iter.has_realized_native_value,
         family_tested_sizes_csv:
           iter.family_tested_sizes_csv,
         family_receipt_gas_csv:

@@ -9,9 +9,11 @@ export interface MoneyFlowRow {
   readonly token_symbol: string | null;
   readonly token_contract: string | null;
   readonly transfer_amount: string | null;
+  readonly transfer_amount_raw: string | null;
   readonly value_eth: string | null;
   readonly has_transfer_metadata: number;
   readonly has_native_value: number;
+  readonly has_realized_native_value: number | null;
 }
 
 interface TransferRecord {
@@ -22,6 +24,7 @@ interface TransferRecord {
   readonly receiver: string;
   readonly asset: string;
   readonly amount: string;
+  readonly amountIsRaw: boolean;
 }
 
 interface GraphNode {
@@ -87,7 +90,11 @@ function toTransferRecords(
     .filter(
       (row) =>
         row.has_transfer_metadata > 0 ||
-        row.has_native_value > 0,
+        row.has_realized_native_value === 1 ||
+        (
+          row.has_realized_native_value === null &&
+          row.has_native_value > 0
+        ),
     )
     .map((row) => {
       const tokenSymbol = row.token_symbol?.trim();
@@ -99,14 +106,29 @@ function toTransferRecords(
             : fallbackAsset(row.token_contract);
 
       const transferAmount = row.transfer_amount?.trim();
+      const rawTransferAmount = row.transfer_amount_raw?.trim();
       const nativeAmount = row.value_eth?.trim();
 
+      const hasNormalizedTransferAmount =
+        transferAmount !== undefined &&
+        transferAmount.length > 0;
+
+      const hasRawTransferAmount =
+        rawTransferAmount !== undefined &&
+        rawTransferAmount.length > 0;
+
       const amount =
-        transferAmount && transferAmount.length > 0
+        hasNormalizedTransferAmount
           ? transferAmount
-          : nativeAmount && nativeAmount.length > 0
-            ? nativeAmount
-            : '0';
+          : hasRawTransferAmount
+            ? rawTransferAmount
+            : nativeAmount && nativeAmount.length > 0
+              ? nativeAmount
+              : '0';
+
+      const amountIsRaw =
+        !hasNormalizedTransferAmount &&
+        hasRawTransferAmount;
 
       return {
         sliceId: row.id,
@@ -116,6 +138,7 @@ function toTransferRecords(
         receiver: row.to_address ?? 'Unknown receiver',
         asset,
         amount,
+        amountIsRaw,
       };
     })
     .sort((a, b) => a.callIndex - b.callIndex);
@@ -228,14 +251,20 @@ function buildEdges(
     sliceIds: [transfer.sliceId],
     label:
       edgeLabelMode === 'Exact'
-        ? `#${transfer.callIndex}: ${transfer.amount} ${transfer.asset}`
-        : `#${transfer.callIndex}: ${compactAmount(
-            transfer.amount,
-          )} ${transfer.asset}`,
+        ? `#${transfer.callIndex}: ${transfer.amount}${
+            transfer.amountIsRaw ? ' raw units' : ''
+          } ${transfer.asset}`
+        : `#${transfer.callIndex}: ${
+            transfer.amountIsRaw
+              ? transfer.amount
+              : compactAmount(transfer.amount)
+          }${transfer.amountIsRaw ? ' raw units' : ''} ${transfer.asset}`,
     tooltip:
       `Call #${transfer.callIndex}\n` +
       `${transfer.sender} → ${transfer.receiver}\n` +
-      `${transfer.amount} ${transfer.asset}\n` +
+      `${transfer.amount}${
+        transfer.amountIsRaw ? ' raw units' : ''
+      } ${transfer.asset}\n` +
       `Operation: ${transfer.operation}`,
   }));
 }
@@ -483,12 +512,16 @@ function renderTransferTable(
               m(
                 'div',
                 {
-                  title: `${transfer.amount} ${transfer.asset}`,
+                  title: `${transfer.amount}${
+                    transfer.amountIsRaw ? ' raw units' : ''
+                  } ${transfer.asset}`,
                   style:
                     'font-weight:600;' +
                     'font-variant-numeric:tabular-nums;',
                 },
-                `${transfer.amount} ${transfer.asset}`,
+                `${transfer.amount}${
+                  transfer.amountIsRaw ? ' raw units' : ''
+                } ${transfer.asset}`,
               ),
               m(
                 'div',
